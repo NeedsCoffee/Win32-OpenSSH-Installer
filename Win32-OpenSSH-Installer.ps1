@@ -1,3 +1,5 @@
+[CmdletBinding()]
+
 $owner     = 'PowerShell'
 $repo      = 'Win32-OpenSSH'
 $pattern   = 'OpenSSH-Win64'
@@ -53,11 +55,6 @@ if(Test-Path $outfile){
     break
 }
 
-Write-Host "Stopping sshd and ssh-agent services"
-Get-Service | Where-Object Name -in "ssh-agent","sshd" | Stop-Service -Force
-Write-Host "Killing sshd and ssh-agent processes"
-Get-Process | Where-Object Name -in "ssh-agent","sshd" | Stop-Process -Force
-
 try {
     Expand-Archive -DestinationPath $target -Path $outfile -Force
     $expansionTarget = Join-Path -Path $target -ChildPath ($outfile | Get-Item).BaseName
@@ -70,27 +67,20 @@ try {
 }
 
 $installfile = Join-Path -Path $expansionTarget -ChildPath $installer
-$uninstallfile = Join-Path -Path $expansionTarget -ChildPath "un$installer"
-
-if(Test-Path -Path $uninstallfile){
-    Write-Host "Invoking uninstaller..."
-    Try {
-        Start-Process powershell.exe -ArgumentList "-NoProfile -NoLogo -File `"$uninstallfile`"" -Verb RunAs -WorkingDirectory $expansionTarget -Wait -WindowStyle Minimized
-        Write-Host "Done."
-    } Catch {
-        $_ | Write-Error
-    }
-}
-
-
 if(Test-Path -Path $installfile){
     Write-Host "Invoking installer..."
     Try {
-        Start-Process powershell.exe -ArgumentList "-NoProfile -NoLogo -File `"$installfile`"" -Verb RunAs -WorkingDirectory $expansionTarget -Wait -WindowStyle Minimized
-        Write-Host "Done."
+        $result = Start-Process powershell.exe -ArgumentList "-NoProfile -NoLogo -File `"$installfile`"" -Verb RunAs -WorkingDirectory $expansionTarget -Wait -WindowStyle Minimized -PassThru
+        Write-Host "Installer finished."
+        Write-Host "Adding firewall rule"
+        $servicepath = Join-Path -Path $expansionTarget -ChildPath "sshd.exe"
+        $fwrule = Get-NetFirewallRule -Name sshd-inbound -ErrorAction:SilentlyContinue
+        if($fwrule){
+            Set-NetFirewallRule -Name sshd-inbound -DisplayName "OpenSSH Server" -EdgeTraversalPolicy Allow -Program $servicepath -Direction Inbound -Action Allow -Profile Any -Enabled:True | Out-Null
+        } else {
+            New-NetFirewallRule -Name sshd-inbound -DisplayName "OpenSSH Server" -EdgeTraversalPolicy Allow -Program $servicepath -Direction Inbound -Action Allow -Profile Any | Out-Null
+        }
     } Catch {
         $_ | Write-Error
     }
 }
-
-$null = Read-Host 'Press ENTER'
